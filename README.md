@@ -65,10 +65,116 @@ function B() {
 }
 util.inherits(B, A);
 
-const b = new B(); // Error!
+const b = new B();  // Error
 ```
 
 This is because calling `A` without `new` or `super` is not permitted.
+
+The `Reflect.construct()` method has been suggested as a path forward, but
+that only partially solves the problem, consider:
+
+```js
+const util = require('util');
+
+class A {
+  constructor(a) {
+    this.a = a;
+  }
+}
+
+///
+
+function B(a) {
+  if (!(this instanceof B))
+    return new B(a);
+  return Reflect.construct(A, [a], new.target);
+}
+util.inherits(B, A);
+
+B.prototype.foo = function() {};
+
+// This all works fine
+const b = B(1);
+console.log('b', b.a);
+console.log('b', b.foo);
+console.log('b', b instanceof B);
+console.log('b', b instanceof A);
+
+///
+
+// This, however, does not
+
+function C() {
+  if (!(this instanceof C))
+    return new C();
+  B.call(this, 2);
+}
+util.inherits(C, B);
+
+B.prototype.foo = function() {};
+
+
+const c = C();
+```
+
+Here, the call to `C()` will throw because `new.target` in `B()` will be
+`undefined`.
+
+The example can be modified to account for the `undefined` `new.target`, but
+doing so breaks the propagation of `this`:
+
+```js
+const util = require('util');
+
+class A {
+  constructor(a) {
+    this.a = a;
+  }
+}
+
+///
+
+function B(a) {
+  if (!(this instanceof B))
+    return new B(a);
+  return Reflect.construct(A, [a], new.target || this.constructor);
+}
+util.inherits(B, A);
+
+B.prototype.foo = function() {};
+
+// This all works fine
+const b = B(1);
+console.log('b', b.a);
+console.log('b', b.foo);
+console.log('b', b instanceof B);
+console.log('b', b instanceof A);
+
+///
+
+// This, however, does not
+
+function C() {
+  if (!(this instanceof C))
+    return new C();
+  B.call(this, 2);
+}
+util.inherits(C, B);
+
+B.prototype.foo = function() {};
+
+
+const c = C();
+console.log(c.a);   // undefined!
+console.log(c.foo); // [Function]
+```
+
+Essentially, there is no way of propagating `this` from `C()` to the
+constructor of `A`, even when using `Reflect.construct()` and `new.target`.
+
+This poses a fundamental problem when attempting to update super classes
+to use modern class syntax without breaking existing downstream subclass
+code.
 
 ## Proposal: `{constructor}.construct(thisArg, arguments)` method
 
@@ -85,14 +191,26 @@ class A {
 }
 
 function B() {
+  if (!(this instanceof C))
+    return new B();
   A.construct(this, 1);
 }
 util.inherits(B, A);
 
-const b = new B();
-console.log(b.a);   // 1
+B.prototype.foo = function() {};
+
+function C() {
+  // Legacy style inheritance, very common in existing Node.js apps
+  if (!(this instanceof C))
+    return new C();
+  B.call(this);
+}
+util.inherits(C, B);
+
+const c = C();
+console.log(c.a); // 1
+c.foo();
 ```
 
 The `construct(thisArg[, ...args])` method would exist only on constructor
 functions.
-
