@@ -214,3 +214,88 @@ c.foo();
 
 The `construct(thisArg[, ...args])` method would exist only on constructor
 functions.
+
+## Alternative: Callable Constructors
+
+Currently, class constructors are not callable. This alternative proposal would
+make it possible to create a callable constructor decorator... which would work
+essentially the same as old style inheritance with new class syntax, e.g.:
+
+```js
+class A {
+  @callable constructor() {
+
+  }
+}
+
+function B() {
+  A.call(this);
+}
+util.inherits(B, A);
+
+new B();
+```
+
+Here, the constructor `A()` is callable *only* if it is bound to `this`.
+
+```js
+A();           // Throws because there is no `this`
+new A();       // Initializes `this`, calls the constructor
+A.bind({})();  // Uses {} as this.
+A.call({});    // Uses {} as this.
+```
+
+A class with a callable constructor is generally identical to other classes
+in every other way with the notable exception that a class with a callable
+constructor may only extend from a constructor function or another class with
+a callable constructor.
+
+That is, the following would result in a SyntaxError because `class A {}` does
+not have a callable constructor:
+
+```js
+class A {}
+class B {
+  @callable constructor() {
+    super();
+  }
+}
+function C() {
+  B.call(this);
+}
+new C();
+```
+
+The following, however, would work just fine:
+
+```js
+class A {
+  @callable constructor() {}
+}
+class B {
+  @callable constructor() {
+    super();
+  }
+}
+function C() {
+  B.call(this);
+}
+new C();
+```
+
+The following would also work:
+
+```js
+class A {
+  @callable constructor() {}
+}
+
+class B extends A {
+  constructor() {
+    super();
+  }
+}
+
+new B();
+```
+
